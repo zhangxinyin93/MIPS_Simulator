@@ -9,6 +9,12 @@ public class ReorderBufferEntry {
     private RegisterFileEntry destination; // target register
     private int value; // memory address or calculated value
 
+    public ReorderBufferEntry(int bufferId, Instruction instruction) {
+        this.bufferId = bufferId;
+        this.busy = true;
+        this.instruction = instruction;
+    }
+
     public int getBufferId() {
         return bufferId;
     }

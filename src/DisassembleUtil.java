@@ -1,5 +1,7 @@
 import java.io.*;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static java.lang.Integer.parseInt;
@@ -65,7 +67,10 @@ public class DisassembleUtil {
      * @param filename
      *          The binary file name
      */
-    public static void disassemble(String filename, int fileNumber) {
+
+    private static Map<Integer,Instruction> allInstructions = new HashMap<>();
+
+    public static Map<Integer, Instruction> disassemble(String filename, int fileNumber) {
         try{
             String outputFileName = String.format("output_%d.txt", fileNumber);
             int instructionCount = 0;
@@ -107,15 +112,15 @@ public class DisassembleUtil {
 
                     // Calculate instruction address
                     instructionAddress = 600 + 4 * instructionCount;
-                    instructionObject.address = instructionAddress;
+                    instructionObject.setAddress(instructionAddress);
 
                     // Interpret binary string
                     if (needInterpret) {
                         // Interpret operation
                         operation = interpretOperation(instructionPieces);
-                        operand = interpretOperand(operation, instructionPieces);
+                        operand = interpretOperand(operation, instructionPieces, instructionObject);
 
-                        instructionObject.operation = operation;
+                        instructionObject.setOperation(operation);
 
                         if (operation.equals("BREAK")) {
                             needInterpret = false;
@@ -130,12 +135,15 @@ public class DisassembleUtil {
                     if(operation.equals("")) {
                         needSpace = false;
                     }
+
+                    allInstructions.put(instructionAddress,instructionObject);
                     instruction = format(instructionAddress,instructionPieces,operation,operand);
                     writeInterpretedFile.write(instruction);
                     if(i != binaryFile.length()-1) {
                         writeInterpretedFile.newLine();
                     }
                     writeInterpretedFile.flush();
+
 
                     // Clean
                     instructionCount++;
@@ -157,6 +165,7 @@ public class DisassembleUtil {
                 e.printStackTrace();
             }
         }
+        return allInstructions;
     }
 
     /**
@@ -194,8 +203,9 @@ public class DisassembleUtil {
      *          Dived instruction
      * @return The whole operand in String format
      */
-    private static String interpretOperand(String operation,String[] instructionPieces) {
+    private static String interpretOperand(String operation,String[] instructionPieces,Instruction instructionObject) {
         String operand;
+        int immValue;
         int rs = Integer.parseInt(instructionPieces[1],2);
         int rt = Integer.parseInt(instructionPieces[2],2);
         int rd = Integer.parseInt(instructionPieces[3],2);
@@ -207,23 +217,37 @@ public class DisassembleUtil {
                operand = "R"+ rd+", "
                        + "R"+ rs+", "
                        + "R"+ rt;
+                instructionObject.setRs(rs);
+                instructionObject.setRd(rd);
+                instructionObject.setRt(rt);
                 break;
 
             case "ADDI":case "ADDIU":case "SLTI":
+                immValue = getSignedNum(instructionPieces);
                 operand = "R"+ rt+", "
                         + "R"+ rs+", "
-                        + "#"+getSignedNum(instructionPieces);
+                        + "#"+ immValue;
+                instructionObject.setRt(rt);
+                instructionObject.setRs(rs);
+                instructionObject.setImmValue(immValue);
                 break;
 
             case "BEQ":case "BNE":
+                immValue = getShiftedSignedNum(instructionPieces);
                 operand = "R" + rs + ", "
                         + "R" + rt + ", "
-                        + "#" + getShiftedSignedNum(instructionPieces);
+                        + "#" + immValue;
+                instructionObject.setImmValue(immValue);
+                instructionObject.setRs(rs);
+                instructionObject.setRt(rt);
                 break;
 
             case "SW":case "LW":
+                immValue = getSignedNum(instructionPieces);
                 operand = "R" + rt + ", "
-                        + getSignedNum(instructionPieces) + "(" + "R" + rs + ")";
+                        + immValue + "(" + "R" + rs + ")";
+                instructionObject.setImmValue(immValue);
+                instructionObject.setRt(rt);
                 break;
 
             case "BREAK":case "NOP":
@@ -236,18 +260,26 @@ public class DisassembleUtil {
                 String offset = instructionPieces[1]+instructionPieces[2]+instructionPieces[3]+instructionPieces[4]+instructionPieces[5]+"00";
                 int offsetNum = parseInt(offset,2);
 
+                instructionObject.setImmValue(offsetNum);
+
                 operand = operand+offsetNum;
                 break;
 
             case "BGEZ":case "BGTZ":case "BLEZ":case "BLTZ":
+                immValue = getShiftedSignedNum(instructionPieces);
                 operand = "R" + rs + ", "
-                        + "#" + getShiftedSignedNum(instructionPieces);
+                        + "#" + immValue;
+                instructionObject.setImmValue(immValue);
+                instructionObject.setRs(rs);
                 break;
 
             case "SLL":case "SRA":case "SRL":
                 operand = "R" + rd + ", "
                         + "R" + rt + ", "
                         + sa;
+                instructionObject.setRd(rd);
+                instructionObject.setRt(rt);
+                instructionObject.setSa(sa);
                 break;
 
             default:

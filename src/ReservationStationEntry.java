@@ -17,7 +17,7 @@ public class ReservationStationEntry {
         this.busy = true;
         this.Vj = -1;
         this.Vk = -1;
-        this.operation = instruction.operation;
+        this.operation = instruction.getOperation();
     }
 
     public boolean isBusy() {

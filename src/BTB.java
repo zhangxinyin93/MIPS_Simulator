@@ -30,7 +30,7 @@ public class BTB {
         return instructionAddress + 4;
     }
 
-    public BTBEntry getBTBEntry(int instructionAddress) {
-        return btb.get(instructionAddress);
+    public int getPrediction(int instructionAddress) {
+        return btb.get(instructionAddress).getPredictor();
     }
 }
