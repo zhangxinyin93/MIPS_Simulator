@@ -21,11 +21,13 @@ public class ReservationStation {
         return true;
     }
 
-    public ReservationStationEntry getEntry() {
-        if(isEmpty()) {
-            return null;
-        }
+    public ReservationStationEntry poll() {
+        if(isEmpty()) return null;
         return reservationQueue.poll();
+    }
+
+    public Queue<ReservationStationEntry> getReservationQueue() {
+        return reservationQueue;
     }
 
     public boolean isFull() {

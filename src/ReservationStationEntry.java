@@ -4,20 +4,24 @@
  */
 public class ReservationStationEntry {
     private boolean busy;
-    private String operation;
     private int Vj; // operand1
     private int Vk; // operand2
-    private int Qj; // source1
-    private int Qk; // source2
+    private int Qj; // source1 should be initialized as 0
+    private int Qk; // source2 should be initialized as 0
     private int destination; // #ReorderBuffer
     private int immediateValue; // for load and store to calculate the mem address
     private Instruction instruction;
 
+    // Only need to be written back once
+    private boolean writtenBack;
+
     public ReservationStationEntry(Instruction instruction) {
         this.busy = true;
-        this.Vj = -1;
-        this.Vk = -1;
-        this.operation = instruction.getOperation();
+        this.writtenBack = false;
+        this.Vj = Integer.MIN_VALUE;
+        this.Vk = Integer.MIN_VALUE;
+        this.destination = -1;
+        this.instruction = instruction;
     }
 
     public boolean isBusy() {
@@ -73,7 +77,23 @@ public class ReservationStationEntry {
         return immediateValue;
     }
 
-    public void setImmidateValue(int immediateValue) {
+    public void setImmediateValue(int immediateValue) {
         this.immediateValue = immediateValue;
+    }
+
+    public Instruction getInstruction() {
+        return instruction;
+    }
+
+    public void setInstruction(Instruction instruction) {
+        this.instruction = instruction;
+    }
+
+    public boolean hasWrittenBack() {
+        return writtenBack;
+    }
+
+    public void setWrittenBack(boolean writtenBack) {
+        this.writtenBack = writtenBack;
     }
 }

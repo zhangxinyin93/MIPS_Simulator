@@ -33,4 +33,8 @@ public class BTB {
     public int getPrediction(int instructionAddress) {
         return btb.get(instructionAddress).getPredictor();
     }
+
+    public BTBEntry getEntry(int instructionAddress) {
+        return btb.get(instructionAddress);
+    }
 }

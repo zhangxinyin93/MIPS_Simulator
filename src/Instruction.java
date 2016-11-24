@@ -9,12 +9,23 @@ public class Instruction {
     private int rt;
     private int rd;
     private int sa;
+    // The result from rob only can be used in next cycle
+    private boolean executeJNextCycle;
+    private boolean executeKNextCycle;
 
     // For branch instruction
     private int predictor;
+    public boolean isWrongPredicted;
+    public boolean bj = true;
+
+    // For Load instruction, at write back stage needs two cycle
+    private boolean firstCycle;
 
     public Instruction() {
-
+        this.isWrongPredicted = false;
+        this.firstCycle = false;
+        this.executeJNextCycle = false;
+        this.executeKNextCycle = false;
     }
 
     public String getOperation() {
@@ -79,5 +90,29 @@ public class Instruction {
 
     public void setPredictor(int predictor) {
         this.predictor = predictor;
+    }
+
+    public boolean finishedFirstCycle() {
+        return firstCycle;
+    }
+
+    public void setFirstCycle(boolean firstCycle) {
+        this.firstCycle = firstCycle;
+    }
+
+    public boolean needExecuteJNextCycle() {
+        return executeJNextCycle;
+    }
+
+    public void setExecuteJNextCycle(boolean executeJNextCycle) {
+        this.executeJNextCycle = executeJNextCycle;
+    }
+
+    public boolean needExecuteKNextCycle() {
+        return executeKNextCycle;
+    }
+
+    public void setExecuteKNextCycle(boolean executeKNextCycle) {
+        this.executeKNextCycle = executeKNextCycle;
     }
 }

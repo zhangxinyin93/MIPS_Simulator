@@ -70,7 +70,7 @@ public class DisassembleUtil {
 
     private static Map<Integer,Instruction> allInstructions = new HashMap<>();
 
-    public static Map<Integer, Instruction> disassemble(String filename, int fileNumber) {
+    public static Map<Integer, Instruction> disassemble(String filename, int fileNumber, Map<Integer,Integer> dataSegment) {
         try{
             String outputFileName = String.format("output_%d.txt", fileNumber);
             int instructionCount = 0;
@@ -107,20 +107,20 @@ public class DisassembleUtil {
                         instructionPieces[piece] = instruction.substring(piece * 5 + 1, piece * 5 + 6);
                     }
 
-                    // construct instruction for part2
-                    Instruction instructionObject = new Instruction();
-
                     // Calculate instruction address
                     instructionAddress = 600 + 4 * instructionCount;
-                    instructionObject.setAddress(instructionAddress);
 
                     // Interpret binary string
                     if (needInterpret) {
+                        // construct instruction for part2
+                        Instruction instructionObject = new Instruction();
                         // Interpret operation
                         operation = interpretOperation(instructionPieces);
                         operand = interpretOperand(operation, instructionPieces, instructionObject);
 
                         instructionObject.setOperation(operation);
+                        instructionObject.setAddress(instructionAddress);
+                        allInstructions.put(instructionAddress,instructionObject);
 
                         if (operation.equals("BREAK")) {
                             needInterpret = false;
@@ -128,7 +128,9 @@ public class DisassembleUtil {
                     }
                     // The data region starts from 716
                     else if(instructionAddress >= 716) {
-                        operand = Integer.toString(getSignedData(instruction));
+                        int data = getSignedData(instruction);
+                        operand = Integer.toString(data);
+                        dataSegment.put(instructionAddress,data);
                     }
 
                     // Write to file
@@ -136,13 +138,12 @@ public class DisassembleUtil {
                         needSpace = false;
                     }
 
-                    allInstructions.put(instructionAddress,instructionObject);
                     instruction = format(instructionAddress,instructionPieces,operation,operand);
-                    writeInterpretedFile.write(instruction);
-                    if(i != binaryFile.length()-1) {
-                        writeInterpretedFile.newLine();
-                    }
-                    writeInterpretedFile.flush();
+//                    writeInterpretedFile.write(instruction);
+//                    if(i != binaryFile.length()-1) {
+//                        writeInterpretedFile.newLine();
+//                    }
+//                    writeInterpretedFile.flush();
 
 
                     // Clean
