@@ -47,19 +47,19 @@ public class Simulator {
             while (!isFinish) {
                 pipeline();
                 // TODO: write to file
-                System.out.println("<" + cycle + ">");
-                System.out.println("IQ:");
-                for(Instruction i : instructionQueue) {
-                    System.out.println(i.getAddress() + " " + i.getOperation());
-                }
-                System.out.println("RS:");
-                for(ReservationStationEntry rs : reservationStation.getReservationQueue()) {
-                    System.out.println(rs.getInstruction().getAddress() + " " + rs.getInstruction().getOperation());
-                }
-                System.out.println("ROB:");
-                for(ReorderBufferEntry e : reorderBuffer.getReorderBufferQueue()) {
-                    System.out.println(e.getInstruction().getAddress() + " " + e.getInstruction().getOperation());
-                }
+//                System.out.println("<" + cycle + ">");
+//                System.out.println("IQ:");
+//                for(Instruction i : instructionQueue) {
+//                    System.out.println(i.getAddress() + " " + i.getOperation());
+//                }
+//                System.out.println("RS:");
+//                for(ReservationStationEntry rs : reservationStation.getReservationQueue()) {
+//                    System.out.println(rs.getInstruction().getAddress() + " " + rs.getInstruction().getOperation());
+//                }
+//                System.out.println("ROB:");
+//                for(ReorderBufferEntry e : reorderBuffer.getReorderBufferQueue()) {
+//                    System.out.println(e.getInstruction().getAddress() + " " + e.getInstruction().getOperation());
+//                }
             }
             //System.out.println(cycle);
             return;
@@ -103,7 +103,6 @@ public class Simulator {
     }
 
     private void IF() {
-        //System.out.println(pc);
         Instruction instruction = allInstructions.get(pc);
         // After BREAK, instructionQueue will be empty when BREAK issued
         if(instruction == null) {
@@ -128,17 +127,6 @@ public class Simulator {
         // When this branch is not in btb, it will enter btb in execute stage
         // And this will be treated as not taken
         if(!btb.containsInstruction(instruction.getAddress())) {
-            int targetAddress = -1;
-            switch (instruction.getOperation()) {
-                case "J":
-                    targetAddress = instruction.getImmValue();
-                    break;
-
-                case "BEQ":case "BNE":case "BGEZ":case "BGTZ":case "BLEZ":case "BLTZ":
-                    targetAddress = instruction.getAddress() + 4 + instruction.getImmValue();
-                    break;
-            }
-            btb.put(new BTBEntry(instruction.getAddress(), targetAddress, -1));
             instruction.setPredictor(0);
             pc = pc + 4;
             return;
@@ -241,7 +229,7 @@ public class Simulator {
                 robEntry.setDestination(registerStatus.getRegister(rd));
                 registerStatus.getRegister(rd).setBusy(true);
                 registerStatus.getRegister(rd).setReorderBufferNum(currentReorderBufferId);
-                rsEntry.setImmediateValue(instruction.getSa());
+                rsEntry.setImmediateValue(sa);
                 break;
 
             case "SW":case "BEQ":case "BNE":
@@ -290,7 +278,6 @@ public class Simulator {
     private void Execute() {
         for(ReservationStationEntry entry : reservationStation.getReservationQueue()) {
             if(entry.isBusy()) {
-                //System.out.println(entry.getInstruction().getAddress() + " " + entry.getInstruction().getOperation()+ " " + cycle);
                 execute(entry);
             }
         }
@@ -300,36 +287,38 @@ public class Simulator {
         Instruction instruction = entry.getInstruction();
         String operation = instruction.getOperation();
 
-        // Operand hasn't been ready, need to wait
-        // 似乎不是所有都要等这两个全都好了的样子
-
         if(instruction.needExecuteJNextCycle()) {
-            //System.out.println("2 "+instruction.getAddress() + " " + cycle);
             instruction.setExecuteJNextCycle(false);
             return;
         }
 
         if(instruction.needExecuteKNextCycle()) {
-            //System.out.println("3 "+instruction.getAddress() + " " + cycle);
             instruction.setExecuteKNextCycle(false);
             return;
         }
 
         int branchOutcome;
+        int targetAddress;
 
         switch (operation) {
             case "BEQ":
                 if(entry.getQj() == 0 && entry.getQk() == 0) {
                     branchOutcome = (entry.getVj() == entry.getVk()) ? 1 : 0;
 
-                    // When predict right, need to check if the branch needed to enter the BTB
-                    // For those not in btb, we predict as 0, if the outcome is also 0 we need add it in
+                    // Branch instruction enters btb
+                    if (!btb.containsInstruction(instruction.getAddress())) {
+                        targetAddress = instruction.getAddress() + 4 + instruction.getImmValue();
+                        btb.put(new BTBEntry(instruction.getAddress(), targetAddress, branchOutcome));
+                    }
+
                     if (instruction.getPredictor() != branchOutcome) {
                         instruction.isWrongPredicted = true;
                     } else {
                         instruction.isWrongPredicted = false;
                     }
+                    // Update predictor
                     btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
+
                     // Ready to commit
                     entry.setBusy(false);
                     reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
@@ -337,26 +326,35 @@ public class Simulator {
                 break;
 
             case "BNE":
-                if(instruction.bj) {
-                    instruction.bj = false;
-                    return;
-                }
-                branchOutcome = (entry.getVj() == entry.getVk()) ? 0 : 1;
+                if(entry.getQj() == 0 && entry.getQk() == 0) {
+                    branchOutcome = (entry.getVj() == entry.getVk()) ? 0 : 1;
 
-                // When predict right, need to check if the branch needed to enter the BTB
-                // For those not in btb, we predict as 0, if the outcome is also 0 we need add it in
-                if(instruction.getPredictor() != branchOutcome) {
-                    instruction.isWrongPredicted = true;
+                    // Branch instruction enters btb
+                    if (!btb.containsInstruction(instruction.getAddress())) {
+                        targetAddress = instruction.getAddress() + 4 + instruction.getImmValue();
+                        btb.put(new BTBEntry(instruction.getAddress(), targetAddress, branchOutcome));
+                    }
+
+                    if (instruction.getPredictor() != branchOutcome) {
+                        instruction.isWrongPredicted = true;
+                    } else {
+                        instruction.isWrongPredicted = false;
+                    }
+                    // Update predictor
+                    btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
+
+                    // Ready to commit
+                    entry.setBusy(false);
+                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 }
-                // We need to update btb anyway
-                btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
-                instruction.bj = true;
-                entry.setBusy(false);
-                reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 break;
 
             case "J":
-                if(btb.getEntry(instruction.getAddress()).getPredictor() != 1) {
+                if (!btb.containsInstruction(instruction.getAddress())) {
+                    targetAddress = instruction.getImmValue();
+                    btb.put(new BTBEntry(instruction.getAddress(), targetAddress, 1));
+                }
+                if(instruction.getPredictor() != 1) {
                     instruction.isWrongPredicted = true;
                 } else {
                     instruction.isWrongPredicted = false;
@@ -367,63 +365,94 @@ public class Simulator {
                 break;
 
             case "BGEZ":
-                if(instruction.bj) {
-                    instruction.bj = false;
-                    return;
+                if (entry.getQj() == 0) {
+                    branchOutcome = (entry.getVj() >= 0) ? 1 : 0;
+
+                    if (!btb.containsInstruction(instruction.getAddress())) {
+                        targetAddress = instruction.getAddress() + 4 + instruction.getImmValue();
+                        btb.put(new BTBEntry(instruction.getAddress(), targetAddress, branchOutcome));
+                    }
+
+                    if (instruction.getPredictor() != branchOutcome) {
+                        instruction.isWrongPredicted = true;
+                    } else {
+                        instruction.isWrongPredicted = false;
+                    }
+                    // Update predictor
+                    btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
+
+                    // Ready to commit
+                    entry.setBusy(false);
+                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 }
-                branchOutcome = (entry.getVj() >= 0) ? 1 : 0;
-                if(instruction.getPredictor() != branchOutcome) {
-                    instruction.isWrongPredicted = true;
-                }
-                btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
-                entry.setBusy(false);
-                reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
-                instruction.bj = true;
                 break;
 
             case "BLTZ":
-                if(instruction.bj) {
-                    instruction.bj = false;
-                    return;
+                if (entry.getQj() == 0) {
+                    branchOutcome = (entry.getVj() < 0) ? 1 : 0;
+                    if (!btb.containsInstruction(instruction.getAddress())) {
+                        targetAddress = instruction.getAddress() + 4 + instruction.getImmValue();
+                        btb.put(new BTBEntry(instruction.getAddress(), targetAddress, branchOutcome));
+                    }
+
+                    if (instruction.getPredictor() != branchOutcome) {
+                        instruction.isWrongPredicted = true;
+                    } else {
+                        instruction.isWrongPredicted = false;
+                    }
+                    // Update predictor
+                    btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
+
+                    // Ready to commit
+                    entry.setBusy(false);
+                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 }
-                branchOutcome = (entry.getVj() < 0) ? 1 : 0;
-                if(instruction.getPredictor() != branchOutcome) {
-                    instruction.isWrongPredicted = true;
-                }
-                btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
-                entry.setBusy(false);
-                reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
-                instruction.bj = true;
                 break;
 
             case "BLEZ":
-                if(instruction.bj) {
-                    instruction.bj = false;
-                    return;
+                if (entry.getQj() == 0) {
+                    branchOutcome = (entry.getVj() <= 0) ? 1 : 0;
+
+                    if (!btb.containsInstruction(instruction.getAddress())) {
+                        targetAddress = instruction.getAddress() + 4 + instruction.getImmValue();
+                        btb.put(new BTBEntry(instruction.getAddress(), targetAddress, branchOutcome));
+                    }
+
+                    if (instruction.getPredictor() != branchOutcome) {
+                        instruction.isWrongPredicted = true;
+                    } else {
+                        instruction.isWrongPredicted = false;
+                    }
+                    // Update predictor
+                    btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
+
+                    // Ready to commit
+                    entry.setBusy(false);
+                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 }
-                branchOutcome = (entry.getVj() <= 0) ? 1 : 0;
-                if(instruction.getPredictor() != branchOutcome) {
-                    instruction.isWrongPredicted = true;
-                }
-                btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
-                entry.setBusy(false);
-                reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
-                instruction.bj = true;
                 break;
 
             case "BGTZ":
-                if(instruction.bj) {
-                    instruction.bj = false;
-                    return;
+                if (entry.getQj() == 0) {
+                    branchOutcome = (entry.getVj() > 0) ? 1 : 0;
+
+                    if (!btb.containsInstruction(instruction.getAddress())) {
+                        targetAddress = instruction.getAddress() + 4 + instruction.getImmValue();
+                        btb.put(new BTBEntry(instruction.getAddress(), targetAddress, branchOutcome));
+                    }
+
+                    if (instruction.getPredictor() != branchOutcome) {
+                        instruction.isWrongPredicted = true;
+                    } else {
+                        instruction.isWrongPredicted = false;
+                    }
+                    // Update predictor
+                    btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
+
+                    // Ready to commit
+                    entry.setBusy(false);
+                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 }
-                branchOutcome = (entry.getVj() > 0) ? 1 : 0;
-                if(instruction.getPredictor() != branchOutcome) {
-                    instruction.isWrongPredicted = true;
-                }
-                btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
-                entry.setBusy(false);
-                reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
-                instruction.bj = true;
                 break;
 
             case "ADDI":case "ADDIU":
@@ -521,8 +550,6 @@ public class Simulator {
                     int memoryAddress = entry.getVj() + entry.getImmidateValue();
                     entry.setImmediateValue(memoryAddress);
                     reorderBuffer.getROBEntry(entry.getDestination()).setMemoryAddress(memoryAddress);
-//                    reorderBuffer.getROBEntry(entry.getDestination()).setValue(entry.getVk());
-//                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);true
                 }
                 break;
         }
@@ -570,14 +597,12 @@ public class Simulator {
             reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
             entry.setWrittenBack(true);
             return;
-            //System.out.println(instruction.getAddress() + " " + operation + " " +cycle);
         }
 
             int destinationInROB = entry.getDestination();
             // write to ROB
             reorderBuffer.getROBEntry(destinationInROB).setValue(entry.getImmidateValue());
             reorderBuffer.getROBEntry(destinationInROB).setReady(true);
-            //System.out.println(instruction.getAddress() + " " + operation +" "+ cycle);
 
             // Broadcast on CDB
             for (ReservationStationEntry rsEntry : reservationStation.getReservationQueue()) {
@@ -621,8 +646,7 @@ public class Simulator {
 
         Instruction instruction = robEntry.getInstruction();
         if(instruction.isWrongPredicted) {
-            //System.out.println(instruction.getOperation());
-            removeAll(instruction);
+            removeAll();
             if(instruction.getPredictor() == 0) {
                 pc = btb.getTargetAddress(instruction.getAddress());
             }
@@ -691,13 +715,10 @@ public class Simulator {
 
 
     // Remove all instruction behind this branch or Jump instruction
-    private void removeAll(Instruction instruction) {
+    private void removeAll() {
         instructionQueue.clear();
-        ReservationStation rs = new ReservationStation();
-        ReorderBuffer rob = new ReorderBuffer();
-
-        reservationStation = rs;
-        reorderBuffer = rob;
+        reservationStation = new ReservationStation();
+        reorderBuffer = new ReorderBuffer();
         isFlushed = true;
     }
 }

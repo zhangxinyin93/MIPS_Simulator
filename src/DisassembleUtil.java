@@ -120,6 +120,7 @@ public class DisassembleUtil {
 
                         instructionObject.setOperation(operation);
                         instructionObject.setAddress(instructionAddress);
+                        instructionObject.setCommand(operation + " " + operand);
                         allInstructions.put(instructionAddress,instructionObject);
 
                         if (operation.equals("BREAK")) {
@@ -138,7 +139,7 @@ public class DisassembleUtil {
                         needSpace = false;
                     }
 
-                    instruction = format(instructionAddress,instructionPieces,operation,operand);
+                   instruction = format(instructionAddress,instructionPieces,operation,operand);
 //                    writeInterpretedFile.write(instruction);
 //                    if(i != binaryFile.length()-1) {
 //                        writeInterpretedFile.newLine();

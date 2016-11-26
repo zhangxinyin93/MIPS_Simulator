@@ -9,6 +9,7 @@ public class Instruction {
     private int rt;
     private int rd;
     private int sa;
+    private String command;
     // The result from rob only can be used in next cycle
     private boolean executeJNextCycle;
     private boolean executeKNextCycle;
@@ -16,7 +17,6 @@ public class Instruction {
     // For branch instruction
     private int predictor;
     public boolean isWrongPredicted;
-    public boolean bj = true;
     public boolean writtenInSameCycle;
 
     // For Load instruction, at write back stage needs two cycle
@@ -116,5 +116,13 @@ public class Instruction {
 
     public void setExecuteKNextCycle(boolean executeKNextCycle) {
         this.executeKNextCycle = executeKNextCycle;
+    }
+
+    public String getCommand() {
+        return command;
+    }
+
+    public void setCommand(String command) {
+        this.command = command;
     }
 }
