@@ -1,4 +1,3 @@
-import javax.annotation.processing.SupportedSourceVersion;
 import java.util.*;
 
 /**
@@ -41,18 +40,12 @@ public class Simulator {
 
     public void simulate(String inputFileName, String outputFileName, String requiredCycle) {
         allInstructions = DisassembleUtil.disassemble(inputFileName, 1, dataSegement);
-//        for(int addr: allInstructions.keySet()) {
-//            Instruction i = allInstructions.get(addr);
-//            System.out.println(i.getOperation()+" "+i.getAddress()+" " +i.getRd()+" "+i.getRs()+" "+i.getRt()+" "+i.getSa()+" "+i.getImmValue());
-//        }
 
         // Handle the input arguments
 
         if(requiredCycle == "") {
             while (!isFinish) {
                 pipeline();
-                //System.out.println(registerStatus.getRegister(10).getValue() + " " + " 10");
-                //System.out.println(registerStatus.getRegister(8).getValue() + " " + " 8");
                 // TODO: write to file
                 System.out.println("<" + cycle + ">");
                 System.out.println("IQ:");
@@ -69,9 +62,6 @@ public class Simulator {
                 }
             }
             //System.out.println(cycle);
-            //System.out.println(btb.getPrediction(652));
-            //System.out.println(registerStatus.getRegister(10).getValue());
-            //System.out.println(registerStatus.getRegister(8).getValue());
             return;
         }
 
@@ -529,7 +519,7 @@ public class Simulator {
                 if(entry.getQj() == 0 && !existLoadStoreDependency(instruction)) {
                     entry.setBusy(false);
                     int memoryAddress = entry.getVj() + entry.getImmidateValue();
-                    //entry.setImmediateValue(memoryAddress);
+                    entry.setImmediateValue(memoryAddress);
                     reorderBuffer.getROBEntry(entry.getDestination()).setMemoryAddress(memoryAddress);
 //                    reorderBuffer.getROBEntry(entry.getDestination()).setValue(entry.getVk());
 //                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);true
@@ -547,17 +537,6 @@ public class Simulator {
                 continue;
             }
             if(!rsEntry.isBusy() && !rsEntry.hasWrittenBack()) {
-                if(operation.equals("LW") && existEarlyStoreInROB(rsEntry)) {
-                    continue;
-                }
-                if(operation.equals("SW") && rsEntry.getQk() != 0) {
-                    continue;
-                }
-                if(operation.equals("LW") && !rsEntry.getInstruction().finishedFirstCycle()) {
-                    rsEntry.setImmediateValue(dataSegement.get(rsEntry.getImmidateValue()));
-                    rsEntry.getInstruction().setFirstCycle(true);
-                    continue;
-                }
                 writeBack(rsEntry);
             }
         }
@@ -567,29 +546,33 @@ public class Simulator {
         Instruction instruction = entry.getInstruction();
         String operation = instruction.getOperation();
 
-//        if(operation.equals("LW") && existEarlyStoreInROB(entry)) {
-//            return;
-//        }
+        if(operation.equals("LW") && existEarlyStoreInROB(entry)) {
+            return;
+        }
 
-        // For Load instruction, first cycle to access memory
-//        if(operation.equals("LW") && !instruction.finishedFirstCycle()) {
-//            entry.setImmediateValue(dataSegement.get(entry.getImmidateValue()));
-//            instruction.setFirstCycle(true);
-//            return;
-//        }
+         // For Load instruction, first cycle to access memory
+        if(operation.equals("LW") && !instruction.finishedFirstCycle()) {
+            entry.setImmediateValue(dataSegement.get(entry.getImmidateValue()));
+            instruction.setFirstCycle(true);
+            return;
+        }
 
-//        if(operation.equals("SW") && entry.getQk() != 0) {
-//            return;
-//        }
+        if(operation.equals("LW")) {
+            instruction.setFirstCycle(false);
+        }
+
+        if(operation.equals("SW") && entry.getQk() != 0) {
+            return;
+        }
 
         if (operation.equals("SW")) {
             reorderBuffer.getROBEntry(entry.getDestination()).setValue(entry.getVk());
             reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
             entry.setWrittenBack(true);
+            return;
             //System.out.println(instruction.getAddress() + " " + operation + " " +cycle);
         }
 
-        if (!operation.equals("SW")) {
             int destinationInROB = entry.getDestination();
             // write to ROB
             reorderBuffer.getROBEntry(destinationInROB).setValue(entry.getImmidateValue());
@@ -617,7 +600,6 @@ public class Simulator {
             }
 
             entry.setWrittenBack(true);
-        }
     }
 
     // If mispredict, then remove all
@@ -633,11 +615,6 @@ public class Simulator {
             return;
         }
 
-//        if(robEntry.isBusy()) {
-//            robEntry.setBusy(false);
-//            return;
-//        }
-
         // clear the entry for rob and rs
         robEntry = reorderBuffer.poll();
         reservationStation.poll();
@@ -652,9 +629,6 @@ public class Simulator {
             if(instruction.getPredictor() == 1) {
                 pc = instruction.getAddress() + 4;
             }
-//            System.out.println(pc);
-//            System.out.println(registerStatus.getRegister(8).getValue());
-//            System.out.println(registerStatus.getRegister(10).getValue());
         }
 
 
@@ -675,9 +649,6 @@ public class Simulator {
                 robEntry.getDestination().setBusy(false);
                 break;
         }
-
-//        reorderBuffer.poll();
-//        reservationStation.poll();
 
         if (flag) {
             reorderBuffer.setReclaim(true);
@@ -724,23 +695,6 @@ public class Simulator {
         instructionQueue.clear();
         ReservationStation rs = new ReservationStation();
         ReorderBuffer rob = new ReorderBuffer();
-
-//        for(ReservationStationEntry entry : reservationStation.getReservationQueue()) {
-//            // Haven't committed, we need to reserve this.instruction in the rob and rs
-//            rs.add(entry);
-//            System.out.println(entry.getInstruction().getOperation() + " rs");
-//            if(entry.getInstruction().equals(instruction)) {
-//                break;
-//            }
-//        }
-
-//        for(ReorderBufferEntry robEntry : reorderBuffer.getReorderBufferQueue()) {
-//            rob.add(robEntry.getBufferId(),robEntry);
-//            System.out.println(robEntry.getInstruction().getOperation() + " rob");
-//            if(robEntry.getInstruction().equals(instruction)) {
-//                break;
-//            }
-//        }
 
         reservationStation = rs;
         reorderBuffer = rob;
