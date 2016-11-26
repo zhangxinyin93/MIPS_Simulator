@@ -17,6 +17,7 @@ public class Instruction {
     private int predictor;
     public boolean isWrongPredicted;
     public boolean bj = true;
+    public boolean writtenInSameCycle;
 
     // For Load instruction, at write back stage needs two cycle
     private boolean firstCycle;
@@ -26,6 +27,7 @@ public class Instruction {
         this.firstCycle = false;
         this.executeJNextCycle = false;
         this.executeKNextCycle = false;
+        this.writtenInSameCycle = false;
     }
 
     public String getOperation() {

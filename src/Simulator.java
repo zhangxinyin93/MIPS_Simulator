@@ -1,7 +1,5 @@
+import javax.annotation.processing.SupportedSourceVersion;
 import java.util.*;
-import java.util.stream.StreamSupport;
-
-import static com.sun.tools.javadoc.Main.execute;
 
 /**
  * Tomasulo Algorithm simulator
@@ -20,6 +18,7 @@ public class Simulator {
     private int cycle = 0;
     private int pc = 600;
     private boolean isFinish = false;
+    private boolean isFlushed = false;
 
     public Simulator() {
         this.instructionQueue = new LinkedList<>();
@@ -52,11 +51,27 @@ public class Simulator {
         if(requiredCycle == "") {
             while (!isFinish) {
                 pipeline();
-                System.out.println(registerStatus.getRegister(10).getValue() + " " + " 10");
-                System.out.println(registerStatus.getRegister(8).getValue() + " " + " 8");
+                //System.out.println(registerStatus.getRegister(10).getValue() + " " + " 10");
+                //System.out.println(registerStatus.getRegister(8).getValue() + " " + " 8");
                 // TODO: write to file
+                System.out.println("<" + cycle + ">");
+                System.out.println("IQ:");
+                for(Instruction i : instructionQueue) {
+                    System.out.println(i.getAddress() + " " + i.getOperation());
+                }
+                System.out.println("RS:");
+                for(ReservationStationEntry rs : reservationStation.getReservationQueue()) {
+                    System.out.println(rs.getInstruction().getAddress() + " " + rs.getInstruction().getOperation());
+                }
+                System.out.println("ROB:");
+                for(ReorderBufferEntry e : reorderBuffer.getReorderBufferQueue()) {
+                    System.out.println(e.getInstruction().getAddress() + " " + e.getInstruction().getOperation());
+                }
             }
             //System.out.println(cycle);
+            //System.out.println(btb.getPrediction(652));
+            //System.out.println(registerStatus.getRegister(10).getValue());
+            //System.out.println(registerStatus.getRegister(8).getValue());
             return;
         }
 
@@ -105,6 +120,11 @@ public class Simulator {
             return;
         }
 
+        if(isFlushed) {
+            isFlushed = false;
+            return;
+        }
+
         String operation = instruction.getOperation();
         instructionQueue.add(instruction);
 
@@ -117,7 +137,7 @@ public class Simulator {
 
         // When this branch is not in btb, it will enter btb in execute stage
         // And this will be treated as not taken
-        if(!btb.containsInstruction(pc)) {
+        if(!btb.containsInstruction(instruction.getAddress())) {
             int targetAddress = -1;
             switch (instruction.getOperation()) {
                 case "J":
@@ -125,7 +145,7 @@ public class Simulator {
                     break;
 
                 case "BEQ":case "BNE":case "BGEZ":case "BGTZ":case "BLEZ":case "BLTZ":
-                    targetAddress = pc + 4 + instruction.getImmValue();
+                    targetAddress = instruction.getAddress() + 4 + instruction.getImmValue();
                     break;
             }
             btb.put(new BTBEntry(instruction.getAddress(), targetAddress, -1));
@@ -145,6 +165,11 @@ public class Simulator {
         }
 
         if(reservationStation.isFull() || reorderBuffer.isFull()) {
+            return;
+        }
+
+        if(reorderBuffer.isReclaim()) {
+            reorderBuffer.setReclaim(false);
             return;
         }
 
@@ -275,6 +300,7 @@ public class Simulator {
     private void Execute() {
         for(ReservationStationEntry entry : reservationStation.getReservationQueue()) {
             if(entry.isBusy()) {
+                //System.out.println(entry.getInstruction().getAddress() + " " + entry.getInstruction().getOperation()+ " " + cycle);
                 execute(entry);
             }
         }
@@ -285,16 +311,16 @@ public class Simulator {
         String operation = instruction.getOperation();
 
         // Operand hasn't been ready, need to wait
-        if (entry.getQj() != 0 || entry.getQk() != 0) {
-            return;
-        }
+        // 似乎不是所有都要等这两个全都好了的样子
 
         if(instruction.needExecuteJNextCycle()) {
+            //System.out.println("2 "+instruction.getAddress() + " " + cycle);
             instruction.setExecuteJNextCycle(false);
             return;
         }
 
         if(instruction.needExecuteKNextCycle()) {
+            //System.out.println("3 "+instruction.getAddress() + " " + cycle);
             instruction.setExecuteKNextCycle(false);
             return;
         }
@@ -303,24 +329,21 @@ public class Simulator {
 
         switch (operation) {
             case "BEQ":
-                if(instruction.bj) {
-                    instruction.bj = false;
-                    return;
-                }
+                if(entry.getQj() == 0 && entry.getQk() == 0) {
+                    branchOutcome = (entry.getVj() == entry.getVk()) ? 1 : 0;
 
-                branchOutcome = (entry.getVj() == entry.getVk()) ? 1 : 0;
-                //System.out.println(branchOutcome);
-
-                // When predict right, need to check if the branch needed to enter the BTB
-                // For those not in btb, we predict as 0, if the outcome is also 0 we need add it in
-                if(instruction.getPredictor() != branchOutcome) {
-                    instruction.isWrongPredicted = true;
+                    // When predict right, need to check if the branch needed to enter the BTB
+                    // For those not in btb, we predict as 0, if the outcome is also 0 we need add it in
+                    if (instruction.getPredictor() != branchOutcome) {
+                        instruction.isWrongPredicted = true;
+                    } else {
+                        instruction.isWrongPredicted = false;
+                    }
+                    btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
+                    // Ready to commit
+                    entry.setBusy(false);
+                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 }
-                btb.getEntry(instruction.getAddress()).setPredictor(branchOutcome);
-                // Ready to commit
-                instruction.bj = true;
-                entry.setBusy(false);
-                reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 break;
 
             case "BNE":
@@ -343,17 +366,14 @@ public class Simulator {
                 break;
 
             case "J":
-                if(instruction.bj) {
-                    instruction.bj = false;
-                    return;
-                }
                 if(btb.getEntry(instruction.getAddress()).getPredictor() != 1) {
                     instruction.isWrongPredicted = true;
+                } else {
+                    instruction.isWrongPredicted = false;
                 }
                 btb.getEntry(instruction.getAddress()).setPredictor(1);
                 entry.setBusy(false);
                 reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
-                instruction.bj = true;
                 break;
 
             case "BGEZ":
@@ -417,78 +437,102 @@ public class Simulator {
                 break;
 
             case "ADDI":case "ADDIU":
-                entry.setImmediateValue(entry.getVj() + entry.getImmidateValue());
-                entry.setBusy(false);
+                if(entry.getQj() == 0) {
+                    entry.setImmediateValue(entry.getVj() + entry.getImmidateValue());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "ADD":case "ADDU":
-                entry.setImmediateValue(entry.getVj() + entry.getVk());
-                entry.setBusy(false);
+                //System.out.println(entry.getInstruction().getAddress() + " " + cycle);
+                if(entry.getQj() == 0 && entry.getQk() == 0) {
+                    entry.setImmediateValue(entry.getVj() + entry.getVk());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "SUB":case "SUBU":
-                entry.setImmediateValue(entry.getVj() - entry.getVk());
-                entry.setBusy(false);
+                if(entry.getQj() == 0 && entry.getQk() == 0) {
+                    entry.setImmediateValue(entry.getVj() - entry.getVk());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "SLT":case "SLTU":
-                if(entry.getVj() < entry.getVk()) {
-                    entry.setImmediateValue(1);
-                } else {
-                    entry.setImmediateValue(0);
+                if(entry.getQj() == 0 && entry.getQk() == 0) {
+                    if (entry.getVj() < entry.getVk()) {
+                        entry.setImmediateValue(1);
+                    } else {
+                        entry.setImmediateValue(0);
+                    }
+                    entry.setBusy(false);
                 }
-                entry.setBusy(false);
                 break;
 
             case "AND":
-                entry.setImmediateValue(entry.getVj() & entry.getVk());
-                entry.setBusy(false);
+                if(entry.getQj() == 0 && entry.getQk() == 0) {
+                    entry.setImmediateValue(entry.getVj() & entry.getVk());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "OR":
-                entry.setImmediateValue(entry.getVj() | entry.getVk());
-                entry.setBusy(false);
+                if(entry.getQj() == 0 && entry.getQk() == 0 ) {
+                    entry.setImmediateValue(entry.getVj() | entry.getVk());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "XOR":
-                entry.setImmediateValue(entry.getVj() ^ entry.getVk());
-                entry.setBusy(false);
+                if(entry.getQj() == 0 && entry.getQk() == 0) {
+                    entry.setImmediateValue(entry.getVj() ^ entry.getVk());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "NOR":
-                entry.setImmediateValue(~(entry.getVj() | entry.getVk()));
-                entry.setBusy(false);
+                if(entry.getQj() == 0 && entry.getQk() == 0) {
+                    entry.setImmediateValue(~(entry.getVj() | entry.getVk()));
+                    entry.setBusy(false);
+                }
                 break;
 
             case "SLL":
-                entry.setImmediateValue(entry.getVk() << entry.getImmidateValue());
-                entry.setBusy(false);
+                if(entry.getQk() == 0) {
+                    entry.setImmediateValue(entry.getVk() << entry.getImmidateValue());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "SRL":
-                entry.setImmediateValue(entry.getVk() >>> entry.getImmidateValue());
-                entry.setBusy(false);
+                if(entry.getQk() == 0) {
+                    entry.setImmediateValue(entry.getVk() >>> entry.getImmidateValue());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "SRA":
-                entry.setImmediateValue(entry.getVk() >>> entry.getImmidateValue());
-                entry.setBusy(false);
+                if(entry.getQk() == 0) {
+                    entry.setImmediateValue(entry.getVk() >>> entry.getImmidateValue());
+                    entry.setBusy(false);
+                }
                 break;
 
             case "LW":
-                if(!existLoadStoreDependency(instruction)) {
+                if(entry.getQj() == 0 && !existLoadStoreDependency(instruction)) {
                     entry.setImmediateValue(entry.getImmidateValue() + entry.getVj());
                     entry.setBusy(false);
                 }
                 break;
 
             case "SW":
-                if(!existLoadStoreDependency(instruction)) {
+                if(entry.getQj() == 0 && !existLoadStoreDependency(instruction)) {
                     entry.setBusy(false);
                     int memoryAddress = entry.getVj() + entry.getImmidateValue();
+                    //entry.setImmediateValue(memoryAddress);
                     reorderBuffer.getROBEntry(entry.getDestination()).setMemoryAddress(memoryAddress);
-                    reorderBuffer.getROBEntry(entry.getDestination()).setValue(entry.getVk());
-                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
+//                    reorderBuffer.getROBEntry(entry.getDestination()).setValue(entry.getVk());
+//                    reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);true
                 }
                 break;
         }
@@ -498,11 +542,22 @@ public class Simulator {
         for(ReservationStationEntry rsEntry : reservationStation.getReservationQueue()) {
             String operation = rsEntry.getInstruction().getOperation();
             // Bypass Store and branch instruction, NOP and BREAK
-            if(operation.equals("SW") || branchInstructions.contains(operation) ||
+            if(branchInstructions.contains(operation) ||
                     operation.equals("NOP") || operation.equals("BREAK")) {
-                return;
+                continue;
             }
             if(!rsEntry.isBusy() && !rsEntry.hasWrittenBack()) {
+                if(operation.equals("LW") && existEarlyStoreInROB(rsEntry)) {
+                    continue;
+                }
+                if(operation.equals("SW") && rsEntry.getQk() != 0) {
+                    continue;
+                }
+                if(operation.equals("LW") && !rsEntry.getInstruction().finishedFirstCycle()) {
+                    rsEntry.setImmediateValue(dataSegement.get(rsEntry.getImmidateValue()));
+                    rsEntry.getInstruction().setFirstCycle(true);
+                    continue;
+                }
                 writeBack(rsEntry);
             }
         }
@@ -512,50 +567,76 @@ public class Simulator {
         Instruction instruction = entry.getInstruction();
         String operation = instruction.getOperation();
 
-        if(operation.equals("LW") && existEarlyStoreInROB(entry)) {
-            return;
-        }
+//        if(operation.equals("LW") && existEarlyStoreInROB(entry)) {
+//            return;
+//        }
 
         // For Load instruction, first cycle to access memory
-        if(operation.equals("LW") && !instruction.finishedFirstCycle()) {
-            entry.setImmediateValue(dataSegement.get(entry.getImmidateValue()));
-            instruction.setFirstCycle(true);
-            return;
+//        if(operation.equals("LW") && !instruction.finishedFirstCycle()) {
+//            entry.setImmediateValue(dataSegement.get(entry.getImmidateValue()));
+//            instruction.setFirstCycle(true);
+//            return;
+//        }
+
+//        if(operation.equals("SW") && entry.getQk() != 0) {
+//            return;
+//        }
+
+        if (operation.equals("SW")) {
+            reorderBuffer.getROBEntry(entry.getDestination()).setValue(entry.getVk());
+            reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
+            entry.setWrittenBack(true);
+            //System.out.println(instruction.getAddress() + " " + operation + " " +cycle);
         }
 
-        int destinationInROB = entry.getDestination();
-        // write to ROB
-        reorderBuffer.getROBEntry(destinationInROB).setValue(entry.getImmidateValue());
-        reorderBuffer.getROBEntry(destinationInROB).setReady(true);
+        if (!operation.equals("SW")) {
+            int destinationInROB = entry.getDestination();
+            // write to ROB
+            reorderBuffer.getROBEntry(destinationInROB).setValue(entry.getImmidateValue());
+            reorderBuffer.getROBEntry(destinationInROB).setReady(true);
+            //System.out.println(instruction.getAddress() + " " + operation +" "+ cycle);
 
-        // Broadcast on CDB
-        for(ReservationStationEntry rsEntry : reservationStation.getReservationQueue()) {
-            if(rsEntry.getQj() == destinationInROB) {
-                rsEntry.setVj(entry.getImmidateValue());
-                rsEntry.setQj(0);
-                rsEntry.getInstruction().setExecuteJNextCycle(true);
+            // Broadcast on CDB
+            for (ReservationStationEntry rsEntry : reservationStation.getReservationQueue()) {
+                int count = 0;
+                if (rsEntry.getQj() == destinationInROB) {
+                    rsEntry.setVj(entry.getImmidateValue());
+                    rsEntry.setQj(0);
+                    rsEntry.getInstruction().setExecuteJNextCycle(true);
+                    count++;
+                }
+                if (rsEntry.getQk() == destinationInROB) {
+                    rsEntry.setVk(entry.getImmidateValue());
+                    rsEntry.setQk(0);
+                    rsEntry.getInstruction().setExecuteKNextCycle(true);
+                    count++;
+                }
+                if(count == 2) {
+                    instruction.writtenInSameCycle = true;
+                }
             }
-            if(rsEntry.getQk() == destinationInROB) {
-                rsEntry.setVk(entry.getImmidateValue());
-                rsEntry.setQk(0);
-                rsEntry.getInstruction().setExecuteKNextCycle(true);
-            }
+
+            entry.setWrittenBack(true);
         }
-
-        entry.setWrittenBack(true);
     }
 
     // If mispredict, then remove all
     private void Commit() {
+
+        boolean flag = false;
+        if(reorderBuffer.isFull()) {
+            flag = true;
+        }
+
         ReorderBufferEntry robEntry = reorderBuffer.getReorderBufferQueue().peek();
         if(robEntry == null || !robEntry.isReady()) {
             return;
         }
 
-        if(robEntry.isBusy()) {
-            robEntry.setBusy(false);
-            return;
-        }
+//        if(robEntry.isBusy()) {
+//            robEntry.setBusy(false);
+//            return;
+//        }
 
         // clear the entry for rob and rs
         robEntry = reorderBuffer.poll();
@@ -595,7 +676,12 @@ public class Simulator {
                 break;
         }
 
-        reorderBuffer.setReclaim(true);
+//        reorderBuffer.poll();
+//        reservationStation.poll();
+
+        if (flag) {
+            reorderBuffer.setReclaim(true);
+        }
 
         robEntry = reorderBuffer.getReorderBufferQueue().peek();
         if(robEntry != null && robEntry.isReady() && robEntry.isBusy()) {
@@ -658,5 +744,6 @@ public class Simulator {
 
         reservationStation = rs;
         reorderBuffer = rob;
+        isFlushed = true;
     }
 }

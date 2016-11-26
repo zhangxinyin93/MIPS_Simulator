@@ -249,6 +249,7 @@ public class DisassembleUtil {
                         + immValue + "(" + "R" + rs + ")";
                 instructionObject.setImmValue(immValue);
                 instructionObject.setRt(rt);
+                instructionObject.setRs(rs);
                 break;
 
             case "BREAK":case "NOP":
