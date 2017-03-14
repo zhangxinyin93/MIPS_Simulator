@@ -11,7 +11,7 @@ public class Simulator {
     private BTB btb;
     private Set<String> branchInstructions;
     private Map<Integer,Instruction> allInstructions;
-    private Map<Integer,Integer> dataSegement;
+    private Map<Integer,Integer> dataSegment;
 
     private int reorderBufferId = 1;
     private int cycle = 0;
@@ -27,7 +27,7 @@ public class Simulator {
         this.btb = new BTB();
         this.branchInstructions = new HashSet<>();
         this.allInstructions = new HashMap<>();
-        this.dataSegement = new HashMap<>();
+        this.dataSegment = new HashMap<>();
 
         branchInstructions.add("J");
         branchInstructions.add("BEQ");
@@ -38,30 +38,18 @@ public class Simulator {
         branchInstructions.add("BLTZ");
     }
 
-    public void simulate(String inputFileName, String outputFileName, String requiredCycle) {
-        allInstructions = DisassembleUtil.disassemble(inputFileName, 1, dataSegement);
+    public void simulate(String inputFileName, String outputFileName, String requiredCycle) throws Exception {
+        WriteUtil writeUtil = new WriteUtil(outputFileName);
+        allInstructions = DisassembleUtil.disassemble(inputFileName, 1, dataSegment);
 
         // Handle the input arguments
-
         if(requiredCycle == "") {
             while (!isFinish) {
                 pipeline();
-                // TODO: write to file
-//                System.out.println("<" + cycle + ">");
-//                System.out.println("IQ:");
-//                for(Instruction i : instructionQueue) {
-//                    System.out.println(i.getAddress() + " " + i.getOperation());
-//                }
-//                System.out.println("RS:");
-//                for(ReservationStationEntry rs : reservationStation.getReservationQueue()) {
-//                    System.out.println(rs.getInstruction().getAddress() + " " + rs.getInstruction().getOperation());
-//                }
-//                System.out.println("ROB:");
-//                for(ReorderBufferEntry e : reorderBuffer.getReorderBufferQueue()) {
-//                    System.out.println(e.getInstruction().getAddress() + " " + e.getInstruction().getOperation());
-//                }
+                writeUtil.write(cycle, instructionQueue, reservationStation,
+                        reorderBuffer, btb, registerStatus, dataSegment);
             }
-            //System.out.println(cycle);
+            writeUtil.close();
             return;
         }
 
@@ -73,12 +61,14 @@ public class Simulator {
         if(start == 0 && end == 0) {
             while (!isFinish) {
                 pipeline();
-                // TODO: write to file
+                writeUtil.write(cycle, instructionQueue, reservationStation,
+                        reorderBuffer, btb, registerStatus, dataSegment);
             }
         } else if(start == 0) {
             while (cycle <= end && !isFinish) {
                 pipeline();
-                // TODO: write to file
+                writeUtil.write(cycle, instructionQueue, reservationStation,
+                        reorderBuffer, btb, registerStatus, dataSegment);
             }
         } else if(start > 0) {
             while (cycle <= start - 1) {
@@ -86,11 +76,13 @@ public class Simulator {
             }
             while (cycle <= end && !isFinish) {
                 pipeline();
-                // TODO: write to file
+                writeUtil.write(cycle, instructionQueue, reservationStation,
+                        reorderBuffer, btb, registerStatus, dataSegment);
             }
         } else {
             throw new IllegalArgumentException();
         }
+        writeUtil.close();
     }
 
     private void pipeline() {
@@ -109,6 +101,8 @@ public class Simulator {
             return;
         }
 
+        // If just flushed this cycle because of wrong predict
+        // We just can fetch from next cycle
         if(isFlushed) {
             isFlushed = false;
             return;
@@ -349,17 +343,14 @@ public class Simulator {
                 }
                 break;
 
+            // Enter BTB in commit stage
             case "J":
-                if (!btb.containsInstruction(instruction.getAddress())) {
-                    targetAddress = instruction.getImmValue();
-                    btb.put(new BTBEntry(instruction.getAddress(), targetAddress, 1));
-                }
                 if(instruction.getPredictor() != 1) {
                     instruction.isWrongPredicted = true;
                 } else {
                     instruction.isWrongPredicted = false;
                 }
-                btb.getEntry(instruction.getAddress()).setPredictor(1);
+                //btb.getEntry(instruction.getAddress()).setPredictor(1);
                 entry.setBusy(false);
                 reorderBuffer.getROBEntry(entry.getDestination()).setReady(true);
                 break;
@@ -579,7 +570,7 @@ public class Simulator {
 
          // For Load instruction, first cycle to access memory
         if(operation.equals("LW") && !instruction.finishedFirstCycle()) {
-            entry.setImmediateValue(dataSegement.get(entry.getImmidateValue()));
+            entry.setImmediateValue(dataSegment.get(entry.getImmidateValue()));
             instruction.setFirstCycle(true);
             return;
         }
@@ -629,10 +620,8 @@ public class Simulator {
 
     // If mispredict, then remove all
     private void Commit() {
-
-        boolean flag = false;
         if(reorderBuffer.isFull()) {
-            flag = true;
+            reorderBuffer.setReclaim(true);
         }
 
         ReorderBufferEntry robEntry = reorderBuffer.getReorderBufferQueue().peek();
@@ -645,6 +634,11 @@ public class Simulator {
         reservationStation.poll();
 
         Instruction instruction = robEntry.getInstruction();
+
+        if (instruction.getOperation().equals("J") && !btb.containsInstruction(instruction.getAddress())) {
+            btb.put(new BTBEntry(instruction.getAddress(), instruction.getImmValue(), 1));
+        }
+
         if(instruction.isWrongPredicted) {
             removeAll();
             if(instruction.getPredictor() == 0) {
@@ -658,7 +652,7 @@ public class Simulator {
 
         switch (instruction.getOperation()) {
             case "SW":
-                dataSegement.replace(robEntry.getMemoryAddress(),robEntry.getValue());
+                dataSegment.replace(robEntry.getMemoryAddress(),robEntry.getValue());
                 break;
 
             case "BREAK":
@@ -672,10 +666,6 @@ public class Simulator {
                 robEntry.getDestination().setValue(robEntry.getValue());
                 robEntry.getDestination().setBusy(false);
                 break;
-        }
-
-        if (flag) {
-            reorderBuffer.setReclaim(true);
         }
 
         robEntry = reorderBuffer.getReorderBufferQueue().peek();
